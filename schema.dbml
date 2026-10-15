@@ -1,0 +1,14 @@
+Project TodoAPI {
+  database_type: 'MySQL'
+  Note: 'Simple database schema for the Todo API'
+}
+
+Table todos {
+  id bigint [pk, increment]
+  name varchar(255) [not null]
+  status varchar(20) [not null, default: 'pending']
+  created_at timestamp [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [not null, default: `CURRENT_TIMESTAMP`]
+
+  Note: 'Stores todo items. Status can be pending, in_progress, or completed.'
+}
