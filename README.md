@@ -144,8 +144,3 @@ Indexes: `(todo_id, position)`, `(todo_id, is_completed)`.
 
 A todo with no checklist items should show an empty state, not a fake progress percentage.
 
-## Tests
-
-[`todo_test_stubs.go`](todo_test_stubs.go) still targets the legacy API: `POST /todos` without `/api/v1`, status `pending`, `PUT` instead of `PATCH`, hard delete `204`, and list body `{ "todos": [...] }`. `newTestHandler` skips until a handler is wired. `go test` only picks up files named `*_test.go`.
-
-Replace or rewrite these stubs against [`todo_api_openapi.yaml`](todo_api_openapi.yaml) before treating them as coverage for this API.
