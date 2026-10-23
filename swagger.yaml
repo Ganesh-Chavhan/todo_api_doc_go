@@ -2,206 +2,1313 @@ openapi: 3.0.3
 info:
   title: Todo API
   version: 1.0.0
-  description: A simple API to create, view, list, update, and delete todos.
+  description: |
+    OpenAPI documentation for the checklist-based Todo API.
 
+    A Todo is a main task, such as "Update package". A Todo can have zero or
+    more checklist items, such as "Check updated package info", "Verify previous
+    package", and "Update and test the new package". Checklist items belong to
+    one Todo and can be completed independently. They are not separate Todos on
+    the dashboard.
+
+    A Todo's status (To Do, In Progress, or Completed) is separate from checklist
+    progress. Checklist progress is calculated from the checklist items and is
+    not stored as a separate value.
+
+    Archive and recycle-bin states are also separate from Todo status. Active
+    Todos have neither archivedAt nor deletedAt set. A Todo in the recycle bin
+    keeps its checklist items until it is permanently deleted.
+
+    Authentication and user accounts are not specified in the current user
+    stories, so this contract does not define authentication endpoints.
 servers:
-  - url: http://localhost:8080
+  - url: http://localhost:8080/api/v1
+    description: Local development server; change this URL to match the Go server configuration.
+tags:
+  - name: Dashboard
+    description: Active Todo dashboard with status columns and counts.
+  - name: Todos
+    description: Create, view, update, search, filter, sort, archive, restore, and delete Todos.
+  - name: Checklist Items
+    description: Manage individual steps within a Todo and view checklist progress.
+  - name: Recycle Bin
+    description: Permanently remove deleted Todos, including emptying the recycle bin.
+  - name: Bulk Actions
+    description: Apply recycle-bin actions to multiple Todos and receive per-item results.
 
 paths:
-  /todos:
-    post:
-      summary: Create a todo
-      description: Create a todo with a name. Status is optional and defaults to pending.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - name
-              properties:
-                name:
-                  type: string
-                  example: Finish Go assignment
-                status:
-                  type: string
-                  enum: [pending, in_progress, completed]
-                  default: pending
-                  example: pending
-      responses:
-        '201':
-          description: Todo created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Todo'
-        '400':
-          description: Invalid input, such as a missing name or invalid status
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
+  /dashboard:
     get:
-      summary: List todos
-      description: Return todos in pages. Use the next_cursor value to request the next page.
+      tags: [Dashboard]
+      operationId: getTodoDashboard
+      summary: Get the active Todo dashboard
+      description: |
+        Returns the three active dashboard columns: To Do, In Progress, and
+        Completed. Each column is independently paginated so a large column can
+        be navigated without affecting the other columns. Archived and recycled
+        Todos are excluded. Search, date filters, and sorting are applied to all
+        columns consistently. Checklist progress is included with each Todo.
       parameters:
-        - name: limit
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/CreatedFrom'
+        - $ref: '#/components/parameters/CreatedTo'
+        - $ref: '#/components/parameters/SortBy'
+        - $ref: '#/components/parameters/SortOrder'
+        - name: limitPerColumn
           in: query
-          required: false
-          description: Number of todos to return. Maximum is 50.
+          description: Maximum number of Todos returned in each status column.
           schema:
             type: integer
-            default: 10
             minimum: 1
-            maximum: 50
-        - name: cursor
+            maximum: 100
+            default: 20
+        - name: cursorToDo
           in: query
-          required: false
-          description: Cursor returned by the previous list response.
+          description: Opaque continuation cursor for the To Do column.
+          schema:
+            type: string
+        - name: cursorInProgress
+          in: query
+          description: Opaque continuation cursor for the In Progress column.
+          schema:
+            type: string
+        - name: cursorCompleted
+          in: query
+          description: Opaque continuation cursor for the Completed column.
           schema:
             type: string
       responses:
         '200':
-          description: Todos returned successfully. The list may be empty.
+          description: Dashboard data returned successfully.
           content:
             application/json:
               schema:
-                type: object
-                required: [todos, next_cursor]
-                properties:
-                  todos:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Todo'
-                  next_cursor:
-                    type: string
-                    nullable: true
+                $ref: '#/components/schemas/DashboardResponse'
+              example:
+                data:
+                  totalActiveTodos: 4
+                  columns:
+                    toDo:
+                      totalCount: 2
+                      items:
+                        - id: 101
+                          name: Update package
+                          status: To Do
+                          createdAt: '2026-10-20T09:30:00Z'
+                          updatedAt: '2026-10-20T09:30:00Z'
+                          checklistProgress:
+                            totalItems: 3
+                            completedItems: 1
+                            remainingItems: 2
+                        - id: 103
+                          name: Review API response
+                          status: To Do
+                          createdAt: '2026-10-20T10:00:00Z'
+                          updatedAt: '2026-10-20T10:00:00Z'
+                          checklistProgress:
+                            totalItems: 0
+                            completedItems: 0
+                            remainingItems: 0
+                      hasMore: false
+                      nextCursor: null
+                    inProgress:
+                      totalCount: 1
+                      items:
+                        - id: 102
+                          name: Fix unit tests
+                          status: In Progress
+                          createdAt: '2026-10-19T13:00:00Z'
+                          updatedAt: '2026-10-21T08:00:00Z'
+                          checklistProgress:
+                            totalItems: 2
+                            completedItems: 1
+                            remainingItems: 1
+                      hasMore: false
+                      nextCursor: null
+                    completed:
+                      totalCount: 1
+                      items:
+                        - id: 99
+                          name: Read Go notes
+                          status: Completed
+                          createdAt: '2026-10-18T11:00:00Z'
+                          updatedAt: '2026-10-19T12:00:00Z'
+                          checklistProgress:
+                            totalItems: 0
+                            completedItems: 0
+                            remainingItems: 0
+                      hasMore: false
+                      nextCursor: null
         '400':
-          description: Invalid limit or cursor
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
-  /todos/{id}:
-    parameters:
-      - name: id
-        in: path
-        required: true
-        description: ID of the todo
-        schema:
-          type: integer
-          minimum: 1
-
+  /todos:
     get:
-      summary: Get a todo
+      tags: [Todos]
+      operationId: listTodos
+      summary: List, search, filter, and sort Todos
+      description: |
+        Returns a paginated list of Todos. The default view is `active`.
+        Active results exclude archived and recycled Todos. Use `archived` to
+        show archived Todos or `recycle-bin` to show soft-deleted Todos.
+
+        Search, status filters, date filters, and sorting can be combined.
+        Cursors are opaque. When using a cursor, keep the same view, filters,
+        and sort settings. Results use a deterministic ID tie-breaker for
+        consistent ordering.
+      parameters:
+        - name: view
+          in: query
+          description: Which Todo collection to list.
+          schema:
+            type: string
+            enum: [active, archived, recycle-bin]
+            default: active
+        - $ref: '#/components/parameters/Search'
+        - name: status
+          in: query
+          description: Filter by one or more Todo statuses. May be repeated in the query string.
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/TodoStatus'
+        - $ref: '#/components/parameters/CreatedFrom'
+        - $ref: '#/components/parameters/CreatedTo'
+        - $ref: '#/components/parameters/SortBy'
+        - $ref: '#/components/parameters/SortOrder'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
       responses:
         '200':
-          description: Todo found
+          description: The matching Todos and pagination information.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Todo'
+                $ref: '#/components/schemas/TodoListResponse'
+              example:
+                data:
+                  items:
+                    - id: 101
+                      name: Update package
+                      status: To Do
+                      createdAt: '2026-10-20T09:30:00Z'
+                      updatedAt: '2026-10-20T09:30:00Z'
+                      archivedAt: null
+                      deletedAt: null
+                      checklistProgress:
+                        totalItems: 3
+                        completedItems: 1
+                        remainingItems: 2
+                  page:
+                    limit: 20
+                    hasMore: false
+                    nextCursor: null
         '400':
-          description: Invalid todo ID
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '404':
-          description: Todo not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
-    put:
-      summary: Update a todo
-      description: Update the todo name and status.
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags: [Todos]
+      operationId: createTodo
+      summary: Create a Todo
+      description: Creates a Todo with a non-empty name. If status is omitted, it defaults to `To Do`. A new Todo starts active and has no checklist items.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [name, status]
-              properties:
-                name:
-                  type: string
-                  example: Finish Go assignment
-                status:
-                  type: string
-                  enum: [pending, in_progress, completed]
-                  example: completed
+              $ref: '#/components/schemas/CreateTodoRequest'
+            example:
+              name: Update package
+              status: To Do
+      responses:
+        '201':
+          description: Todo created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TodoDetailResponse'
+              example:
+                data:
+                  id: 101
+                  name: Update package
+                  status: To Do
+                  createdAt: '2026-10-20T09:30:00Z'
+                  updatedAt: '2026-10-20T09:30:00Z'
+                  archivedAt: null
+                  deletedAt: null
+                  checklistItems: []
+                  checklistProgress:
+                    totalItems: 0
+                    completedItems: 0
+                    remainingItems: 0
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /todos/{todoId}:
+    parameters:
+      - $ref: '#/components/parameters/TodoId'
+    get:
+      tags: [Todos]
+      operationId: getTodo
+      summary: Get Todo details and checklist
+      description: Returns Todo details, all of its checklist items in display order, and derived checklist counts. A Todo in the recycle bin can still be viewed until permanently deleted.
       responses:
         '200':
-          description: Todo updated successfully
+          description: Todo details returned successfully.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Todo'
-        '400':
-          description: Invalid input
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/TodoDetailResponse'
+              example:
+                data:
+                  id: 101
+                  name: Update package
+                  status: In Progress
+                  createdAt: '2026-10-20T09:30:00Z'
+                  updatedAt: '2026-10-21T08:10:00Z'
+                  archivedAt: null
+                  deletedAt: null
+                  checklistItems:
+                    - id: 501
+                      todoId: 101
+                      name: Check updated package info
+                      isCompleted: true
+                      position: 0
+                      createdAt: '2026-10-20T09:31:00Z'
+                      updatedAt: '2026-10-20T10:00:00Z'
+                      completedAt: '2026-10-20T10:00:00Z'
+                    - id: 502
+                      todoId: 101
+                      name: Verify previous package
+                      isCompleted: false
+                      position: 1
+                      createdAt: '2026-10-20T09:32:00Z'
+                      updatedAt: '2026-10-20T09:32:00Z'
+                      completedAt: null
+                    - id: 503
+                      todoId: 101
+                      name: Update and test the new package
+                      isCompleted: false
+                      position: 2
+                      createdAt: '2026-10-20T09:33:00Z'
+                      updatedAt: '2026-10-20T09:33:00Z'
+                      completedAt: null
+                  checklistProgress:
+                    totalItems: 3
+                    completedItems: 1
+                    remainingItems: 2
         '404':
-          description: Todo not found
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    patch:
+      tags: [Todos]
+      operationId: updateTodo
+      summary: Update a Todo
+      description: Updates the Todo name, status, or both. Checklist item completion is independent of the Todo status. Archived and recycled Todos cannot be edited through this active-task operation; restore or unarchive them first.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTodoRequest'
+            examples:
+              updateName:
+                summary: Change the name
+                value:
+                  name: Update package and run tests
+              updateStatus:
+                summary: Move to another status column
+                value:
+                  status: In Progress
+              updateBoth:
+                summary: Change name and status
+                value:
+                  name: Update package and run tests
+                  status: Completed
+      responses:
+        '200':
+          description: Todo updated successfully.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-
+                $ref: '#/components/schemas/TodoDetailResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     delete:
-      summary: Delete a todo
+      tags: [Todos]
+      operationId: moveTodoToRecycleBin
+      summary: Move a Todo to the recycle bin
+      description: |
+        Soft-deletes an active Todo by setting its deletion timestamp. The Todo
+        and its checklist items remain available through the recycle-bin view
+        and can be restored. This is not permanent deletion. Only active Todos
+        can be moved to the recycle bin; unarchive a Todo first if it is archived.
+      responses:
+        '200':
+          description: Todo moved to the recycle bin successfully; its checklist is preserved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TodoDetailResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /todos/{todoId}/archive:
+    parameters:
+      - $ref: '#/components/parameters/TodoId'
+    post:
+      tags: [Todos]
+      operationId: archiveTodo
+      summary: Archive a Todo
+      description: Archives an active Todo without changing its status or checklist. The Todo is removed from active dashboard results and appears in the archived view.
+      responses:
+        '200':
+          description: Todo archived successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TodoDetailResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /todos/{todoId}/unarchive:
+    parameters:
+      - $ref: '#/components/parameters/TodoId'
+    post:
+      tags: [Todos]
+      operationId: unarchiveTodo
+      summary: Unarchive a Todo
+      description: Clears the archive state and returns the Todo to the active list, preserving its status and checklist. A Todo in the recycle bin must be restored first.
+      responses:
+        '200':
+          description: Todo unarchived successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TodoDetailResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /todos/{todoId}/restore:
+    parameters:
+      - $ref: '#/components/parameters/TodoId'
+    post:
+      tags: [Todos]
+      operationId: restoreTodo
+      summary: Restore a Todo from the recycle bin
+      description: Restores the Todo to the active list by clearing its deletion state. Its status and checklist items are preserved. Permanently deleted records cannot be restored.
+      responses:
+        '200':
+          description: Todo restored successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TodoDetailResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /todos/{todoId}/permanent:
+    parameters:
+      - $ref: '#/components/parameters/TodoId'
+      - name: confirm
+        in: query
+        required: true
+        description: Must be true. The client should ask the user to confirm before sending this request.
+        schema:
+          type: boolean
+          enum: [true]
+    delete:
+      tags: [Recycle Bin]
+      operationId: permanentlyDeleteTodo
+      summary: Permanently delete a Todo
+      description: Permanently deletes a Todo from the recycle bin. The database cascades the deletion to its checklist items. This operation cannot be undone. The client should show a confirmation dialog before calling this endpoint.
       responses:
         '204':
-          description: Todo deleted successfully
+          description: Todo and its checklist items permanently deleted.
         '400':
-          description: Invalid todo ID
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+          $ref: '#/components/responses/BadRequest'
         '404':
-          description: Todo not found
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /todos/{todoId}/checklist-items:
+    parameters:
+      - $ref: '#/components/parameters/TodoId'
+    get:
+      tags: [Checklist Items]
+      operationId: listChecklistItems
+      summary: List a Todo's checklist items
+      description: Returns checklist items ordered by position, then ID. This endpoint can be used independently; Todo details also include checklist items.
+      responses:
+        '200':
+          description: Checklist items returned successfully.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/ChecklistItemListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags: [Checklist Items]
+      operationId: createChecklistItems
+      summary: Add one or more checklist items
+      description: |
+        Adds one or more checklist items to an existing Todo. Send one item in
+        the `items` array to add a single step. Names must not be empty. Items
+        belong to their parent Todo and do not appear as independent Todos on
+        the dashboard. If positions are omitted, the server appends items after
+        the current last item in the request order.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateChecklistItemsRequest'
+            examples:
+              packageSteps:
+                summary: Add the steps for updating a package
+                value:
+                  items:
+                    - name: Check updated package info
+                    - name: Verify previous package
+                    - name: Update and test the new package
+      responses:
+        '201':
+          description: Checklist items created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChecklistItemListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /todos/{todoId}/checklist-items/{itemId}:
+    parameters:
+      - $ref: '#/components/parameters/TodoId'
+      - $ref: '#/components/parameters/ChecklistItemId'
+    get:
+      tags: [Checklist Items]
+      operationId: getChecklistItem
+      summary: Get a checklist item
+      description: Returns one checklist item belonging to the specified Todo.
+      responses:
+        '200':
+          description: Checklist item returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChecklistItemResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    patch:
+      tags: [Checklist Items]
+      operationId: updateChecklistItem
+      summary: Update a checklist item
+      description: |
+        Updates the name, completion state, or display position. At least one
+        field must be provided. When `isCompleted` changes to true, the server
+        sets `completedAt`; when it changes to false, the server clears
+        `completedAt`. Completing or reopening a checklist item does not change
+        the parent Todo status. The Todo's checklist progress is recalculated
+        from its checklist items.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateChecklistItemRequest'
+            examples:
+              completeItem:
+                summary: Mark a step complete
+                value:
+                  isCompleted: true
+              reopenItem:
+                summary: Reopen a completed step
+                value:
+                  isCompleted: false
+              renameItem:
+                summary: Edit a step name
+                value:
+                  name: Verify the previous package version
+      responses:
+        '200':
+          description: Checklist item updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChecklistItemResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags: [Checklist Items]
+      operationId: deleteChecklistItem
+      summary: Remove a checklist item
+      description: Permanently removes one checklist item from its parent Todo. The Todo's derived checklist counts are recalculated after deletion.
+      responses:
+        '204':
+          description: Checklist item deleted successfully.
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /recycle-bin/empty:
+    post:
+      tags: [Recycle Bin]
+      operationId: emptyRecycleBin
+      summary: Permanently delete all Todos in the recycle bin
+      description: |
+        Permanently deletes every Todo currently in the recycle bin and all
+        associated checklist items. The client must ask the user for
+        confirmation and send `confirm: true`. If the user cancels, it must not
+        call this endpoint. If the recycle bin is already empty, the endpoint
+        succeeds with deletedCount set to zero.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmationRequest'
+            example:
+              confirm: true
+      responses:
+        '200':
+          description: Recycle bin processed successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyRecycleBinResponse'
+              example:
+                data:
+                  deletedCount: 4
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /todos/bulk/move-to-recycle-bin:
+    post:
+      tags: [Bulk Actions]
+      operationId: bulkMoveTodosToRecycleBin
+      summary: Move multiple active Todos to the recycle bin
+      description: |
+        Moves the selected active Todos to the recycle bin in one request.
+        The client must ask for confirmation before calling this endpoint and
+        send `confirm: true`. Each requested Todo is processed separately so
+        the response can report successful and unsuccessful IDs. A Todo that
+        does not exist or is not active is reported as a failure. Checklist
+        items are preserved for Todos moved to the recycle bin. If the user
+        cancels the confirmation dialog, do not send this request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkTodoActionRequest'
+            example:
+              todoIds: [101, 103, 104]
+              confirm: true
+      responses:
+        '200':
+          description: Bulk action processed. Inspect each failure in the response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkActionResponse'
+              example:
+                data:
+                  requestedCount: 3
+                  succeededCount: 2
+                  failedCount: 1
+                  succeededIds: [101, 103]
+                  failures:
+                    - id: 104
+                      code: not_found
+                      message: Todo was not found.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /todos/bulk/permanently-delete:
+    post:
+      tags: [Bulk Actions]
+      operationId: bulkPermanentlyDeleteTodos
+      summary: Permanently delete multiple Todos from the recycle bin
+      description: |
+        Permanently deletes selected Todos that are currently in the recycle
+        bin. The client must ask for confirmation before calling this endpoint
+        and send `confirm: true`. Each requested Todo is processed separately,
+        and the response summarizes successful and unsuccessful items. The
+        checklist items of successfully deleted Todos are deleted as well. If
+        the user cancels the confirmation dialog, do not send this request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkTodoActionRequest'
+            example:
+              todoIds: [201, 202]
+              confirm: true
+      responses:
+        '200':
+          description: Bulk action processed. Inspect each failure in the response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkActionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
 components:
+  parameters:
+    TodoId:
+      name: todoId
+      in: path
+      required: true
+      description: Numeric identifier of the Todo.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+      example: 101
+    ChecklistItemId:
+      name: itemId
+      in: path
+      required: true
+      description: Numeric identifier of the checklist item.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+      example: 501
+    Search:
+      name: search
+      in: query
+      description: Case-insensitive substring search in the Todo name. Can be combined with filters.
+      schema:
+        type: string
+        maxLength: 255
+        example: package
+    CreatedFrom:
+      name: createdFrom
+      in: query
+      description: Include Todos created at or after this date/time (inclusive). Use an ISO 8601 date-time.
+      schema:
+        type: string
+        format: date-time
+      example: '2026-10-01T00:00:00Z'
+    CreatedTo:
+      name: createdTo
+      in: query
+      description: Include Todos created at or before this date/time (inclusive). Use an ISO 8601 date-time.
+      schema:
+        type: string
+        format: date-time
+      example: '2026-10-31T23:59:59Z'
+    SortBy:
+      name: sortBy
+      in: query
+      description: Field used to sort results. The server applies a stable ID tie-breaker when values are equal.
+      schema:
+        type: string
+        enum: [name, status, createdAt, updatedAt]
+        default: createdAt
+    SortOrder:
+      name: sortOrder
+      in: query
+      description: Sort direction.
+      schema:
+        type: string
+        enum: [asc, desc]
+        default: desc
+    Limit:
+      name: limit
+      in: query
+      description: Maximum number of records returned in one page.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor returned by the previous page. Use with the same filters and sort options.
+      schema:
+        type: string
+
   schemas:
-    Todo:
+    TodoStatus:
+      type: string
+      description: The workflow status of the main Todo. This is independent of checklist item completion.
+      enum: [To Do, In Progress, Completed]
+
+    ChecklistProgress:
       type: object
-      required: [id, name, status, created_at, updated_at]
+      description: Derived from checklist items; not stored as an independent database value.
+      required: [totalItems, completedItems, remainingItems]
+      properties:
+        totalItems:
+          type: integer
+          minimum: 0
+          description: Total checklist items attached to the Todo.
+          example: 3
+        completedItems:
+          type: integer
+          minimum: 0
+          description: Number of checklist items with isCompleted=true.
+          example: 1
+        remainingItems:
+          type: integer
+          minimum: 0
+          description: Total items minus completed items.
+          example: 2
+
+    ChecklistItem:
+      type: object
+      required: [id, todoId, name, isCompleted, position, createdAt, updatedAt, completedAt]
       properties:
         id:
           type: integer
-          example: 1
+          format: int64
+          readOnly: true
+          example: 501
+        todoId:
+          type: integer
+          format: int64
+          readOnly: true
+          example: 101
         name:
           type: string
-          example: Finish Go assignment
-        status:
-          type: string
-          enum: [pending, in_progress, completed]
-          example: pending
-        created_at:
+          minLength: 1
+          maxLength: 255
+          description: Checklist step name; whitespace-only names are invalid.
+          example: Check updated package info
+        isCompleted:
+          type: boolean
+          description: Whether this individual checklist step is complete.
+          default: false
+          example: false
+        position:
+          type: integer
+          minimum: 0
+          description: Zero-based display order within the parent Todo.
+          example: 0
+        createdAt:
           type: string
           format: date-time
-          example: '2026-10-15T09:30:00Z'
-        updated_at:
+          readOnly: true
+          example: '2026-10-20T09:31:00Z'
+        updatedAt:
           type: string
           format: date-time
-          example: '2026-10-15T09:30:00Z'
+          readOnly: true
+          example: '2026-10-20T10:00:00Z'
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+          description: Set by the server on completion and cleared when the item is reopened.
+          example: null
 
-    Error:
+    TodoSummary:
       type: object
-      required: [message]
+      required: [id, name, status, createdAt, updatedAt, archivedAt, deletedAt, checklistProgress]
       properties:
+        id:
+          type: integer
+          format: int64
+          readOnly: true
+          example: 101
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          example: Update package
+        status:
+          $ref: '#/components/schemas/TodoStatus'
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+          example: '2026-10-20T09:30:00Z'
+        updatedAt:
+          type: string
+          format: date-time
+          readOnly: true
+          example: '2026-10-21T08:10:00Z'
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+          description: Null unless this Todo is archived.
+          example: null
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+          description: Null unless this Todo is in the recycle bin.
+          example: null
+        checklistProgress:
+          $ref: '#/components/schemas/ChecklistProgress'
+
+    TodoDetail:
+      allOf:
+        - $ref: '#/components/schemas/TodoSummary'
+        - type: object
+          required: [checklistItems]
+          properties:
+            checklistItems:
+              type: array
+              description: All checklist items, ordered by position and then ID.
+              items:
+                $ref: '#/components/schemas/ChecklistItem'
+
+    CreateTodoRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Must contain at least one non-whitespace character.
+          example: Update package
+        status:
+          $ref: '#/components/schemas/TodoStatus'
+
+    UpdateTodoRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Must contain at least one non-whitespace character.
+        status:
+          $ref: '#/components/schemas/TodoStatus'
+
+    CreateChecklistItemInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Must contain at least one non-whitespace character.
+        position:
+          type: integer
+          minimum: 0
+          description: Optional zero-based display position. If omitted, the item is appended.
+
+    CreateChecklistItemsRequest:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          description: One item adds a single checklist step; multiple entries add several steps in one request.
+          items:
+            $ref: '#/components/schemas/CreateChecklistItemInput'
+
+    UpdateChecklistItemRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Must contain at least one non-whitespace character.
+        isCompleted:
+          type: boolean
+          description: Set true to complete the item or false to reopen it. completedAt is set or cleared by the server.
+        position:
+          type: integer
+          minimum: 0
+          description: New zero-based display position.
+
+    PageInfo:
+      type: object
+      required: [limit, hasMore, nextCursor]
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          example: 20
+        hasMore:
+          type: boolean
+          example: false
+        nextCursor:
+          type: string
+          nullable: true
+          description: Cursor for the next page, or null when there are no more results.
+          example: null
+
+    DashboardColumn:
+      type: object
+      required: [totalCount, items, hasMore, nextCursor]
+      properties:
+        totalCount:
+          type: integer
+          minimum: 0
+          description: Total number of active matching Todos in this status column, not just the current page.
+          example: 2
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TodoSummary'
+        hasMore:
+          type: boolean
+          example: false
+        nextCursor:
+          type: string
+          nullable: true
+          description: Cursor for the next page in this column, or null when there are no more results.
+          example: null
+
+    DashboardColumns:
+      type: object
+      required: [toDo, inProgress, completed]
+      properties:
+        toDo:
+          $ref: '#/components/schemas/DashboardColumn'
+        inProgress:
+          $ref: '#/components/schemas/DashboardColumn'
+        completed:
+          $ref: '#/components/schemas/DashboardColumn'
+
+    DashboardData:
+      type: object
+      required: [totalActiveTodos, columns]
+      properties:
+        totalActiveTodos:
+          type: integer
+          minimum: 0
+          description: Total number of active Todos matching the dashboard filters.
+          example: 4
+        columns:
+          $ref: '#/components/schemas/DashboardColumns'
+
+    DashboardResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/DashboardData'
+
+    TodoListData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TodoSummary'
+        page:
+          $ref: '#/components/schemas/PageInfo'
+
+    TodoListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/TodoListData'
+
+    TodoDetailResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/TodoDetail'
+
+    ChecklistItemListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/ChecklistItem'
+
+    ChecklistItemResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/ChecklistItem'
+
+    ConfirmationRequest:
+      type: object
+      additionalProperties: false
+      required: [confirm]
+      properties:
+        confirm:
+          type: boolean
+          enum: [true]
+          description: Must be true after the user confirms the destructive action.
+
+    BulkTodoActionRequest:
+      type: object
+      additionalProperties: false
+      required: [todoIds, confirm]
+      properties:
+        todoIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          description: IDs selected by the user. Duplicate IDs are not allowed.
+          items:
+            type: integer
+            format: int64
+            minimum: 1
+        confirm:
+          type: boolean
+          enum: [true]
+          description: Must be true after the user confirms the action.
+
+    BulkItemFailure:
+      type: object
+      required: [id, code, message]
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 104
+        code:
+          type: string
+          enum: [not_found, invalid_state]
+          example: not_found
         message:
           type: string
-          example: Todo not found
+          example: Todo was not found.
+
+    BulkActionData:
+      type: object
+      required: [requestedCount, succeededCount, failedCount, succeededIds, failures]
+      properties:
+        requestedCount:
+          type: integer
+          minimum: 0
+          example: 3
+        succeededCount:
+          type: integer
+          minimum: 0
+          example: 2
+        failedCount:
+          type: integer
+          minimum: 0
+          example: 1
+        succeededIds:
+          type: array
+          items:
+            type: integer
+            format: int64
+          example: [101, 103]
+        failures:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulkItemFailure'
+
+    BulkActionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/BulkActionData'
+
+    EmptyRecycleBinData:
+      type: object
+      required: [deletedCount]
+      properties:
+        deletedCount:
+          type: integer
+          minimum: 0
+          description: Number of Todos permanently deleted; their checklist items are deleted too.
+          example: 4
+
+    EmptyRecycleBinResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/EmptyRecycleBinData'
+
+    ErrorDetail:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - validation_error
+            - not_found
+            - invalid_state
+            - conflict
+            - confirmation_required
+            - invalid_cursor
+            - internal_error
+          example: validation_error
+        message:
+          type: string
+          example: Todo name must not be empty.
+        details:
+          type: array
+          description: Optional field-level validation details.
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field:
+                type: string
+                example: name
+              message:
+                type: string
+                example: Must contain at least one non-whitespace character.
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+
+  responses:
+    BadRequest:
+      description: Request validation failed, a cursor is invalid, or confirmation was not supplied as true.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            validationError:
+              summary: Invalid Todo name
+              value:
+                error:
+                  code: validation_error
+                  message: Request validation failed.
+                  details:
+                    - field: name
+                      message: Must contain at least one non-whitespace character.
+            invalidCursor:
+              summary: Invalid pagination cursor
+              value:
+                error:
+                  code: invalid_cursor
+                  message: The cursor is invalid or does not match the current filters and sort settings.
+            confirmationRequired:
+              summary: Confirmation is required
+              value:
+                error:
+                  code: confirmation_required
+                  message: Set confirm to true after the user confirms this action.
+    NotFound:
+      description: The Todo or checklist item does not exist or is unavailable.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: not_found
+              message: Todo was not found.
+    Conflict:
+      description: The action is not valid for the current Todo state.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            invalidState:
+              summary: Todo is not in the required state
+              value:
+                error:
+                  code: invalid_state
+                  message: Restore the Todo from the recycle bin before unarchiving it.
+            conflict:
+              summary: State conflict
+              value:
+                error:
+                  code: conflict
+                  message: This action is not allowed for the Todo's current state.
+    InternalServerError:
+      description: Unexpected server error. The response must not expose internal implementation details.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: internal_error
+              message: An unexpected error occurred. Please try again.

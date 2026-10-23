@@ -1,14 +1,62 @@
-Project TodoAPI {
+Project Todo_API {
   database_type: 'MySQL'
-  Note: 'Simple database schema for the Todo API'
+  Note: 'Todo API schema aligned with the revised Jira stories for todos, checklist items, dashboard queries, archive, and recycle-bin behavior.'
+}
+
+Enum todo_status {
+  "To Do"
+  "In Progress"
+  "Completed"
 }
 
 Table todos {
-  id bigint [pk, increment]
+  id bigint [pk, increment, not null]
   name varchar(255) [not null]
-  status varchar(20) [not null, default: 'pending']
-  created_at timestamp [not null, default: `CURRENT_TIMESTAMP`]
-  updated_at timestamp [not null, default: `CURRENT_TIMESTAMP`]
+  status todo_status [not null, default: 'To Do']
+  created_at datetime [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at datetime [not null, default: `CURRENT_TIMESTAMP`]
+  archived_at datetime [null]
+  deleted_at datetime [null]
 
-  Note: 'Stores todo items. Status can be pending, in_progress, or completed.'
+  indexes {
+    name [name: 'idx_todos_name']
+    status [name: 'idx_todos_status']
+    created_at [name: 'idx_todos_created_at']
+    updated_at [name: 'idx_todos_updated_at']
+    archived_at [name: 'idx_todos_archived_at']
+    deleted_at [name: 'idx_todos_deleted_at']
+    (status, archived_at, deleted_at) [name: 'idx_todos_status_archive_delete']
+  }
+
+  Note: 'Main task shown on the dashboard. Archive and recycle-bin states are separate from status. A todo is active when archived_at and deleted_at are both NULL.'
 }
+
+Table checklist_items {
+  id bigint [pk, increment, not null]
+  todo_id bigint [not null]
+  name varchar(255) [not null]
+  is_completed boolean [not null, default: false]
+  position int [not null, default: 0]
+  created_at datetime [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at datetime [not null, default: `CURRENT_TIMESTAMP`]
+  completed_at datetime [null]
+
+  indexes {
+    (todo_id, position) [name: 'idx_checklist_items_todo_position']
+    (todo_id, is_completed) [name: 'idx_checklist_items_todo_completed']
+  }
+
+  Note: 'Checklist steps belong to one todo and are not separate top-level todos. Progress is calculated from these rows: completed item count / total item count. position controls the display order.'
+}
+
+Ref: checklist_items.todo_id > todos.id [delete: cascade, update: cascade]
+
+// Application behavior notes:
+// 1. Update updated_at whenever a todo or checklist item changes. In MySQL this can be handled by application code or ON UPDATE CURRENT_TIMESTAMP.
+// 2. Set completed_at when is_completed becomes true; clear it when the item is reopened.
+// 3. A todo cannot be archived and placed in the recycle bin at the same time. Enforce this in application logic.
+// 4. Active todos: archived_at IS NULL AND deleted_at IS NULL.
+// 5. Archived todos: archived_at IS NOT NULL AND deleted_at IS NULL.
+// 6. Recycle-bin todos: deleted_at IS NOT NULL. Restore by clearing deleted_at; unarchive by clearing archived_at.
+// 7. Moving a todo to the recycle bin is a soft delete and preserves its checklist items. Permanently deleting the todo physically deletes it and cascades to its checklist items.
+// 8. A todo can have zero or more checklist items. An empty checklist should display an empty state, not a misleading progress percentage.
